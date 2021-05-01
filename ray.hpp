@@ -28,4 +28,6 @@ class ray {
         vec3 dir;
 };
 
+#undef __HD__
+
 #endif

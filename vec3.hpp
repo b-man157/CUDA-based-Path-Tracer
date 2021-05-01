@@ -107,4 +107,6 @@ __HD__ inline vec3 unit_vector(const vec3 &v) {
     return v / v.length();
 }
 
+#undef __HD__
+
 #endif

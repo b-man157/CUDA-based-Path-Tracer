@@ -1,28 +1,45 @@
+#include "hittable.hpp"
+#include "rtweekend.hpp"
+
 #include "color.hpp"
-#include "ray.hpp"
-#include "vec3.hpp"
+#include "hittable_list.hpp"
+#include "sphere.hpp"
 
 #include <cuda.h>
 
-#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <numeric>
 
-// TODO: Remove later when redundant.
-#include <cmath>
-using std::sqrt;
+__device__ float hit_sphere(const point3 &center, float radius, const ray &r) {
+    auto oc = r.origin() - center;
+    float a = r.direction().length_squared();
+    float half_b = dot(oc, r.direction());
+    float c = oc.length_squared() - radius*radius;
+    float discriminant = half_b * half_b - a * c;
 
-__device__ color ray_color(ray r) {
+    if (discriminant < 0.0) {
+        return -1.0;
+    }
+    else {
+        return (-half_b - sqrt(discriminant)) / a;
+    }
+}
+
+__device__ color ray_color(const ray &r, const hittable &world) {
+    hit_record rec;
+    if (world.hit(r, 0, infinity, rec)) {
+        return 0.5 * (rec.normal + color(1, 1, 1));
+    }
+    //
     vec3 unit_direction = unit_vector(r.direction());
-    float t = 0.5 * (unit_direction.y() + 1.0);
-
+    auto t = 0.5 * (unit_direction.y() + 1.0);
     return (1.0 - t)*color(1.0, 1.0, 1.0) + t*color(0.5, 0.7, 1.0);
 }
 
 // TODO: Better name?
 __global__ void render(int i_width, int i_height, float v_width, float v_height, float f_length, color *pixel_colors) {
-    __shared__ point3 origin, horizontal, vertical, lower_left_corner;
+    __shared__ vec3 origin, horizontal, vertical, lower_left_corner;
 
     if (!threadIdx.x && !threadIdx.y) {
         origin = point3(0, 0, 0);
@@ -41,8 +58,13 @@ __global__ void render(int i_width, int i_height, float v_width, float v_height,
         ray r(origin, lower_left_corner + u*horizontal + v*vertical - origin);
 
         auto p_index = (i_height-1 - idy) * i_width + idx;
-        pixel_colors[p_index] = ray_color(r);
+        pixel_colors[p_index] = ray_color(r, world);
     }
+}
+
+sphere *make_sphere(point3 center, int radius) {
+    sphere *ptr = new sphere;
+    return ptr;
 }
 
 int main(int argc, char **argv) {
@@ -70,6 +92,13 @@ int main(int argc, char **argv) {
     grid_dim.x = (image_width  / block_dim.x) + (image_width  % block_dim.x > 0);
     grid_dim.y = (image_height / block_dim.y) + (image_height % block_dim.y > 0);
     grid_dim.z = 1;
+
+    // World
+
+    hittable_list world;
+    auto s = sphere(point3(0, 0, 0), 5);
+    world.add(make_sphere(point3(0,    0.0, -1),   0.5));
+    world.add(make_sphere(point3(0, -100.5, -1), 100.0));
 
     // Camera
 
