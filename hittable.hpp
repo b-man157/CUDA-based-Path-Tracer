@@ -1,31 +1,19 @@
 #ifndef HITTABLE_HPP
 #define HITTABLE_HPP
 
-#include "ray.hpp"
+#include "hit_visitor.hpp"
 
-#ifdef __CUDACC__
-    #define __HD__ __host__ __device__
-#else
-    #define __HD__
-#endif
-
-struct hit_record {
-    point3 p;
-    vec3 normal;
-    float t;
-    bool front_face;
-
-    __HD__ inline void set_face_normal(const ray &r, const vec3 &outward_normal) {
-        front_face = dot(r.direction(), outward_normal) < 0;
-        normal = front_face ? outward_normal : -outward_normal;
-    }
-};
-
-class hittable {
+template <typename ...Ts>
+class generic_hittable : public Variant<Ts...> {
     public:
-        __HD__ virtual bool hit(const ray &r, float t_min, float t_max, hit_record &rec) const = 0;
+        template <typename Obj>
+        generic_hittable(Obj obj) : Variant<Ts...>(obj) {}
+
+        bool hit(const ray &r, float t_min, float t_max, hit_record &rec) const {
+            return applyVisitor<Ts...>(hit_visitor(r, t_min, t_max, rec), *this);
+        }
 };
 
-#undef __HD__
+typedef generic_hittable<sphere> hittable;
 
 #endif

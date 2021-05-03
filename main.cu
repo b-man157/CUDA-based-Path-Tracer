@@ -1,8 +1,8 @@
-#include "hittable.hpp"
 #include "rtweekend.hpp"
 
+#include "camera.hpp"
 #include "color.hpp"
-#include "hittable_list.hpp"
+#include "generic_hittable.hpp"
 #include "sphere.hpp"
 
 #include <cuda.h>
@@ -11,60 +11,29 @@
 #include <iostream>
 #include <numeric>
 
-__device__ float hit_sphere(const point3 &center, float radius, const ray &r) {
-    auto oc = r.origin() - center;
-    float a = r.direction().length_squared();
-    float half_b = dot(oc, r.direction());
-    float c = oc.length_squared() - radius*radius;
-    float discriminant = half_b * half_b - a * c;
-
-    if (discriminant < 0.0) {
-        return -1.0;
-    }
-    else {
-        return (-half_b - sqrt(discriminant)) / a;
-    }
-}
-
-__device__ color ray_color(const ray &r, const hittable &world) {
+__device__ color ray_color(const ray &r, const hittable *world) {
     hit_record rec;
-    if (world.hit(r, 0, infinity, rec)) {
+    if (world->hit(r, 0, infinity, rec)) {
         return 0.5 * (rec.normal + color(1, 1, 1));
     }
-    //
+
     vec3 unit_direction = unit_vector(r.direction());
     auto t = 0.5 * (unit_direction.y() + 1.0);
     return (1.0 - t)*color(1.0, 1.0, 1.0) + t*color(0.5, 0.7, 1.0);
 }
 
 // TODO: Better name?
-__global__ void render(int i_width, int i_height, float v_width, float v_height, float f_length, color *pixel_colors) {
-    __shared__ vec3 origin, horizontal, vertical, lower_left_corner;
-
-    if (!threadIdx.x && !threadIdx.y) {
-        origin = point3(0, 0, 0);
-        horizontal = vec3(v_width, 0, 0);
-        vertical = vec3(0, v_height, 0);
-        lower_left_corner = origin - horizontal/2 - vertical/2 - vec3(0, 0, f_length);
-    }
-    __syncthreads();
-
+__global__ void render(const camera *setup, const hittable_list *world, color *pixel_colors) {
     auto idx = blockIdx.x * blockDim.x + threadIdx.x;
     auto idy = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (idx < i_width && idy < i_height) {
-        float u = float(idx) / (i_width-1);
-        float v = float(idy) / (i_height-1);
-        ray r(origin, lower_left_corner + u*horizontal + v*vertical - origin);
+    auto i_width = setup->image_width, i_height = setup->image_height;
 
+    if (idx < i_width && idy < i_height) {
+        auto r = setup->get_ray(idx, idy);
         auto p_index = (i_height-1 - idy) * i_width + idx;
         pixel_colors[p_index] = ray_color(r, world);
     }
-}
-
-sphere *make_sphere(point3 center, int radius) {
-    sphere *ptr = new sphere;
-    return ptr;
 }
 
 int main(int argc, char **argv) {
@@ -77,50 +46,48 @@ int main(int argc, char **argv) {
 
     // Image
 
-    const float aspect_ratio = 16.0 / 9.0;
-    const int image_width  = 400;
-    const int image_height = static_cast<int>(image_width / aspect_ratio);
+    camera h_setup(400, 16.0 / 9.0);
 
     // Dimensions
 
     dim3 block_dim;
-    block_dim.x = sqrt(1024 * aspect_ratio);
-    block_dim.y = block_dim.x / aspect_ratio;
+    block_dim.x = sqrt(1024 * h_setup.aspect_ratio);
+    block_dim.y = block_dim.x / h_setup.aspect_ratio;
     block_dim.z = 1;
 
     dim3 grid_dim;
-    grid_dim.x = (image_width  / block_dim.x) + (image_width  % block_dim.x > 0);
-    grid_dim.y = (image_height / block_dim.y) + (image_height % block_dim.y > 0);
+    grid_dim.x = (h_setup.image_width  / block_dim.x) + (h_setup.image_width  % block_dim.x > 0);
+    grid_dim.y = (h_setup.image_height / block_dim.y) + (h_setup.image_height % block_dim.y > 0);
     grid_dim.z = 1;
 
     // World
 
-    hittable_list world;
-    auto s = sphere(point3(0, 0, 0), 5);
-    world.add(make_sphere(point3(0,    0.0, -1),   0.5));
-    world.add(make_sphere(point3(0, -100.5, -1), 100.0));
+    // TODO: Create list of spheres.
 
     // Camera
 
-    auto viewport_height = 2.0;
-    auto viewport_width = aspect_ratio * viewport_height;
-    auto focal_length = 1.0;
+    // TODO: Nothing here for now.
 
     // Render
 
     std::ofstream f_out(argv[1]);
 
-    f_out << "P3\n" << image_width << ' ' << image_height << "\n255";
+    f_out << "P3\n" << h_setup.image_width << ' ' << h_setup.image_height << "\n255";
 
-    const int n_pixels = image_width * image_height;
-    color *d_pixel_colors, *h_pixel_colors = (color *) std::malloc(n_pixels * sizeof(color));
-    cudaMalloc(&d_pixel_colors, n_pixels * sizeof(color));
+    const int n_pixels = h_setup.image_width * h_setup.image_height;
+    color *d_pixels, *h_pixels = (color *) std::malloc(n_pixels * sizeof(color));
+    cudaMalloc(&d_pixels, n_pixels * sizeof(color));
+
+    camera *d_setup;
+    cudaMalloc(&d_setup, sizeof(camera));
+    cudaMemcpy(d_setup, &h_setup, sizeof(camera), cudaMemcpyHostToDevice);
 
     // TODO: Track and print progress.
-    render<<<grid_dim, block_dim>>>(image_width, image_height, viewport_width, viewport_height, focal_length, d_pixel_colors);
-    cudaMemcpy(h_pixel_colors, d_pixel_colors, n_pixels * sizeof(color), cudaMemcpyDeviceToHost);
+    render<<<grid_dim, block_dim>>>(d_setup, world, d_pixels);
+    cudaMemcpy(h_pixels, d_pixels, n_pixels * sizeof(color), cudaMemcpyDeviceToHost);
+    // world->clear();
 
-    f_out << std::accumulate(h_pixel_colors, h_pixel_colors + n_pixels, std::string(""),
+    f_out << std::accumulate(h_pixels, h_pixels + n_pixels, std::string(""),
         [](const std::string s, const color c) {
             return s + '\n' + to_string(c);
         }

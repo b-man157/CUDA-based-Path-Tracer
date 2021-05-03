@@ -1,4 +1,5 @@
 #include "sphere.hpp"
+#include "generic_hittable.hpp"
 
 bool sphere::hit(const ray &r, float t_min, float t_max, hit_record &rec) const {
     auto oc = r.origin() - center;
@@ -6,16 +7,17 @@ bool sphere::hit(const ray &r, float t_min, float t_max, hit_record &rec) const 
     float half_b = dot(oc, r.direction());
     float c = oc.length_squared() - radius*radius;
 
-    float discriminant = half_b * half_b - a * c;
+    float discriminant = half_b*half_b - a*c;
     if (discriminant < 0.0) return false;
     float sqrtd = sqrt(discriminant);
 
-    // Find the nearest root that lies in the acceptable range.
-    auto root = (-half_b - sqrtd) / a;
+    // Find the nearest root that lies int the acceptable range.
+    float root = (-half_b - sqrtd) / a;
     if (root < t_min || t_max < root) {
         root = (-half_b + sqrtd) / a;
-        if (root < t_min || t_max < root)
+        if (root < t_min || t_max < root) {
             return false;
+        }
     }
 
     rec.t = root;
@@ -24,4 +26,8 @@ bool sphere::hit(const ray &r, float t_min, float t_max, hit_record &rec) const 
     rec.set_face_normal(r, outward_normal);
 
     return true;
+}
+
+int main() {
+    return 0;
 }

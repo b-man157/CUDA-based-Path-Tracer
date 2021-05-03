@@ -21,7 +21,7 @@ inline float degrees_to_radians(float degrees) {
 
 // Common Headers
 
+// TODO
 #include "ray.hpp"
-#include "vec3.hpp"
 
 #endif

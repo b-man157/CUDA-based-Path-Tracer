@@ -15,7 +15,7 @@ using std::sqrt;
 class vec3 {
     public:
         __HD__ vec3() {
-            #ifndef __CUDACC__
+            #ifndef __CUDA_ARCH__
                 e[0] = e[1] = e[2] = 0;
             #endif
         }
