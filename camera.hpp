@@ -9,9 +9,10 @@
 
 class camera {
     public:
-        camera(int width, float ratio) :
-                image_width(width), image_height(width / ratio), aspect_ratio(ratio) {
-            float viewport_width = 2.0 * ratio, viewport_height = 2.0;
+        camera() {
+            float aspect_ratio = 16.0 / 9.0;
+            float viewport_height = 2.0;
+            float viewport_width = aspect_ratio * viewport_height;
             float focal_length = 1.0;
 
             origin = point3(0, 0, 0);
@@ -20,19 +21,15 @@ class camera {
             lower_left_corner = origin - horizontal/2 - vertical/2 - vec3(0, 0, focal_length);
         }
 
-        __device__ ray get_ray(int x, int y) const {
-            float u = float(x) / (image_width - 1);
-            float v = float(y) / (image_height - 1);
+        __device__ ray get_ray(float u, float v) const {
             return ray(origin, lower_left_corner + u*horizontal + v*vertical - origin);
         }
 
-    public:
-        const int image_width, image_height;
-        const float aspect_ratio;
-
     private:
-        point3 origin, lower_left_corner;
-        vec3 horizontal, vertical;
+        point3 origin;
+        point3 lower_left_corner;
+        vec3 horizontal;
+        vec3 vertical;
 };
 
 #endif

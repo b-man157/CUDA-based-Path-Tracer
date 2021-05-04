@@ -14,7 +14,7 @@ class generic_hittable : public Variant<Ts...> {
         generic_hittable() = default;
 
         template <typename Obj>
-        generic_hittable(Obj obj) : Variant<Ts...>(obj) {}
+        __device__ generic_hittable(Obj obj) : Variant<Ts...>(obj) {}
 
         __device__ hit_visitor::return_type hit(
                 const ray &r, float t_min, float t_max, hit_record &rec) const {

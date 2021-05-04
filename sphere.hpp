@@ -10,7 +10,7 @@
 class sphere {
     public:
         sphere() {}
-        sphere(point3 cen, float r) : center(cen), radius(r) {}
+        __device__ sphere(point3 cen, float r) : center(cen), radius(r) {}
 
         __device__ bool hit(const ray &r, float t_min, float t_max, hit_record &rec) const;
 
