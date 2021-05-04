@@ -1,10 +1,18 @@
+objects = main.o hittable_list.o sphere.o
+
 all: image.ppm
 
-a.out: main.cu sphere.cpp
-	@nvcc -arch=sm_86 main.cu sphere.cpp
-
 image.ppm: a.out
-	@./a.out image.ppm
+	./a.out image.ppm
+
+a.out: $(objects)
+	nvcc -arch=sm_86 $(objects)
+
+%.o: %.cu
+	nvcc -arch=sm_86 -dc $< -o $@
+
+%.o: %.cpp
+	nvcc -x cu -arch=sm_86 -dc $< -o $@
 
 clean:
-	@rm -f a.out image.ppm
+	rm -f *.o a.out image.ppm

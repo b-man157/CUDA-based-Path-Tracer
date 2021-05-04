@@ -3,23 +3,48 @@
 
 #include <type_traits>
 
-// Source: https://stackoverflow.com/a/26169248
-// Index_v<T, Ts...> returns the index of T in the parameter pack Ts.
+#ifdef __CUDACC__
+    #define __HD__ __host__ __device__
+#else
+    #define __device__
+    #define __HD__
+#endif
+
+//
+
+template <typename ...Ts>
+struct indexOf_impl;
 
 template <typename T, typename ...Ts>
-struct Index;
-
-template <typename T, typename ...Ts>
-struct Index<T, T, Ts...> : std::integral_constant<std::size_t, 0> {};
+struct indexOf_impl<T, T, Ts...> : std::integral_constant<std::size_t, 1> {};
 
 template <typename T, typename U, typename ...Ts>
-struct Index<T, U, Ts...> : std::integral_constant<std::size_t, 1 + Index<T, Ts...>::value> {};
+struct indexOf_impl<T, U, Ts...> :
+    std::integral_constant<std::size_t, 1 + indexOf_impl<T, Ts...>::value> {};
 
 template <typename T, typename ...Ts>
-constexpr std::size_t Index_v = Index<T, Ts...>::value;
+constexpr std::size_t indexOf = indexOf_impl<T, Ts...>::value;
 
-// Source: S. Zellman and U. Lang, 2017. C++ Compile Time Polymorphism for Ray Tracing. 131 p.
-// Here, Variant uses variadic templates to implement Compile-Time-Polymorphism.
+//
+
+template <unsigned I, typename ...Ts>
+struct typeAt_impl;
+
+template <typename T, typename ...Ts>
+struct typeAt_impl<1, T, Ts...> { using type = T; };
+
+template <unsigned I, typename T, typename ...Ts>
+struct typeAt_impl<I, T, Ts...> : typeAt_impl<I - 1, Ts...> {};
+
+template <unsigned I, typename ...Ts>
+using typeAt = typename typeAt_impl<I, Ts...>::type;
+
+//
+
+template <unsigned I>
+using typedIndex = std::integral_constant<unsigned, I>;
+
+//
 
 template <typename ...Ts>
 union VariantStorage {};
@@ -28,33 +53,86 @@ template <typename T, typename ...Ts>
 union VariantStorage<T, Ts...> {
     T element;
     VariantStorage<Ts...> nextElements;
+
+    __HD__ VariantStorage() {}
+
+    __HD__ T &get(typedIndex<1>) { return element; }
+    __HD__ T const &get(typedIndex<1>) const { return element; }
+
+    template <unsigned I>
+    __HD__ typeAt<I - 1, Ts...> &get(typedIndex<I>) {
+        return nextElements.get(typedIndex<I - 1>{});
+    }
+
+    template <unsigned I>
+    __HD__ typeAt<I - 1, Ts...> const &get(typedIndex<I>) const {
+        return nextElements.get(typedIndex<I - 1>{});
+    }
 };
 
 template <typename ...Ts>
-struct Variant {
-    VariantStorage<Ts...> storage;
-    int type_id;
+class Variant {
+    public:
+        Variant() = default;
 
-    template <typename T>
-    T* as() {
-        if (type_id == Index_v<T, Ts...>)
-            return reinterpret_cast<T *>(&storage);
+        template <typename T>
+        __HD__ Variant(const T &value) : type_index_(indexOf<T, Ts...>) {
+            storage_.get(typedIndex<indexOf<T, Ts...>>()) = value;
+        }
+
+        template <typename T>
+        __HD__ Variant &operator=(const T &value) {
+            type_index_ = indexOf<T, Ts...>;
+            storage_.get(typedIndex<indexOf<T, Ts...>>()) = value;
+        }
+
+        template <typename T>
+        __device__ const T* as() const {
+            return type_index_ == indexOf<T, Ts...>
+                ? &storage_.get(typedIndex<indexOf<T, Ts...>>())
+                : nullptr;
+        }
+
+    private:
+        VariantStorage<Ts...> storage_;
+        std::size_t type_index_;
+};
+
+//
+
+template <unsigned I, typename ...Ts>
+struct applyVisitor_impl;
+
+template <unsigned I, typename T, typename ...Ts>
+struct applyVisitor_impl<I, T, Ts...> {
+    template <typename Visitor, typename Variant>
+    __device__ typename Visitor::return_type operator()(
+            Visitor &visitor, const Variant &var) const {
+        auto ptr = var.template as<T>();
+        if (ptr)
+            return visitor(*ptr);
         else
-            return nullptr;
+            return applyVisitor_impl<I - 1, Ts...>()(visitor, var);
     }
 };
 
-// applyVisitor() traverses the parameter pack, and calls the appropriate Visitor::operator()
-// overload.
-
-class Visitor {};
-
-template <typename T, typename ...Ts>
-auto applyVisitor(Visitor visitor, Variant<Ts...> *var) {
-    if (!var->template as<T>()) {
-        applyVisitor<Ts...>(visitor, var);
+template <>
+struct applyVisitor_impl<0> {
+    template <typename Visitor, typename Variant>
+    __device__ typename Visitor::return_type operator()(
+            Visitor &visitor, const Variant &var) {
+        return typename Visitor::return_type();
     }
-    return visitor(var->template as<T>());
+};
+
+template <typename Visitor, typename ...Ts>
+__device__ typename Visitor::return_type applyVisitor(
+        Visitor &visitor, const Variant<Ts...> &var) {
+    return applyVisitor_impl<sizeof...(Ts), Ts...>()(visitor, var);
 }
+
+#ifndef __CUDACC__
+    #undef __device__
+#endif
 
 #endif

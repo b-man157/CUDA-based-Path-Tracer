@@ -2,7 +2,7 @@
 
 #include "camera.hpp"
 #include "color.hpp"
-#include "generic_hittable.hpp"
+#include "hittable_list.hpp"
 #include "sphere.hpp"
 
 #include <cuda.h>
@@ -11,7 +11,7 @@
 #include <iostream>
 #include <numeric>
 
-__device__ color ray_color(const ray &r, const hittable *world) {
+__device__ color ray_color(const ray &r, const hittable_list *world) {
     hit_record rec;
     if (world->hit(r, 0, infinity, rec)) {
         return 0.5 * (rec.normal + color(1, 1, 1));
@@ -22,7 +22,6 @@ __device__ color ray_color(const ray &r, const hittable *world) {
     return (1.0 - t)*color(1.0, 1.0, 1.0) + t*color(0.5, 0.7, 1.0);
 }
 
-// TODO: Better name?
 __global__ void render(const camera *setup, const hittable_list *world, color *pixel_colors) {
     auto idx = blockIdx.x * blockDim.x + threadIdx.x;
     auto idy = blockIdx.y * blockDim.y + threadIdx.y;
@@ -62,7 +61,12 @@ int main(int argc, char **argv) {
 
     // World
 
-    // TODO: Create list of spheres.
+    const size_t n_spheres = 2;
+    point3 centers[] = {{0, 0, -1}, {0, -100.5, -1}};
+    float radii[] = {0.5, 100};
+
+    hittable_list h_world;
+    h_world.add_spheres(n_spheres, centers, radii);
 
     // Camera
 
@@ -75,17 +79,23 @@ int main(int argc, char **argv) {
     f_out << "P3\n" << h_setup.image_width << ' ' << h_setup.image_height << "\n255";
 
     const int n_pixels = h_setup.image_width * h_setup.image_height;
-    color *d_pixels, *h_pixels = (color *) std::malloc(n_pixels * sizeof(color));
+    color *d_pixels;
     cudaMalloc(&d_pixels, n_pixels * sizeof(color));
 
     camera *d_setup;
     cudaMalloc(&d_setup, sizeof(camera));
     cudaMemcpy(d_setup, &h_setup, sizeof(camera), cudaMemcpyHostToDevice);
 
+    hittable_list *d_world;
+    cudaMalloc(&d_world, sizeof(hittable_list));
+    cudaMemcpy(d_world, &h_world, sizeof(hittable_list), cudaMemcpyHostToDevice);
+
     // TODO: Track and print progress.
-    render<<<grid_dim, block_dim>>>(d_setup, world, d_pixels);
+    render<<<grid_dim, block_dim>>>(d_setup, d_world, d_pixels);
+
+    color *h_pixels = (color *) std::malloc(n_pixels * sizeof(color));
     cudaMemcpy(h_pixels, d_pixels, n_pixels * sizeof(color), cudaMemcpyDeviceToHost);
-    // world->clear();
+    h_world.clear();
 
     f_out << std::accumulate(h_pixels, h_pixels + n_pixels, std::string(""),
         [](const std::string s, const color c) {

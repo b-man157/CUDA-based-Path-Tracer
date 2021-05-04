@@ -1,7 +1,11 @@
 #include "sphere.hpp"
-#include "generic_hittable.hpp"
+#include "hittable.hpp"
 
-bool sphere::hit(const ray &r, float t_min, float t_max, hit_record &rec) const {
+#ifndef __CUDACC__
+    #define __device__
+#endif
+
+__device__ bool sphere::hit(const ray &r, float t_min, float t_max, hit_record &rec) const {
     auto oc = r.origin() - center;
     float a = r.direction().length_squared();
     float half_b = dot(oc, r.direction());
@@ -28,6 +32,6 @@ bool sphere::hit(const ray &r, float t_min, float t_max, hit_record &rec) const 
     return true;
 }
 
-int main() {
-    return 0;
-}
+#ifndef __CUDACC__
+    #undef __device__
+#endif
