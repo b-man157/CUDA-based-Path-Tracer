@@ -6,12 +6,13 @@
 #include "hittable_list.hpp"
 #include "material.hpp"
 
+#include <cstdlib>
 #include <cuda.h>
 #include <curand_kernel.h>
 
 #include <fstream>
-#include <iostream>
 #include <numeric>
+#include <vector>
 
 __constant__ unsigned seed = 42;
 
@@ -64,11 +65,82 @@ __global__ void render(
         for (int i = 0; i < samples_per_pixel; ++i) {
             float u = (idx + random_float(&state[id])) / (image_width-1);
             float v = (idy + random_float(&state[id])) / (image_height-1);
-            auto r = cam->get_ray(u, v);
+            auto r = cam->get_ray(&state[id], u, v);
 
             pixel_colors[p_index] += ray_color<max_depth>(&state[id], r, world);
+
+            if (!idx && !idy) {
+                printf("\rSamples remaining: %d ", samples_per_pixel - i);
+            }
         }
     }
+
+    if (!idx && !idy) {
+        printf("\n");
+    }
+}
+
+hittable_list random_scene() {
+    hittable_list world;
+
+    std::vector<point3> centers;
+    std::vector<float> radii;
+    std::vector<material> materials;
+    centers.reserve(488);
+    radii.reserve(488);
+    materials.reserve(488);
+
+    material ground_material = lambertian(color(0.5, 0.5, 0.5));
+    centers.push_back(point3(0, -1000, 0));
+    radii.push_back(1000);
+    materials.push_back(ground_material);
+
+    for (int a = -11; a < 11; ++a) {
+        for (int b = -11; b < 11; ++b) {
+            float choose_mat = random_float();
+            point3 center(a + 0.9*random_float(), 0.2, b + 0.9*random_float());
+
+            if ((center - point3(4, 0.2, 0)).length() > 0.9) {
+                material sphere_material;
+
+                if (choose_mat < 0.8) {
+                    // diffuse
+                    auto albedo = color::random() * color::random();
+                    sphere_material = lambertian(albedo);
+                } else if (choose_mat < 0.95) {
+                    // metal
+                    auto albedo = color::random(0.5, 1);
+                    float fuzz = random_float(0, 0.5);
+                    sphere_material = metal(albedo, fuzz);
+                } else {
+                    // glass
+                    sphere_material = dielectric(1.5);
+                }
+
+                centers.push_back(center);
+                radii.push_back(0.2);
+                materials.push_back(sphere_material);
+            }
+        }
+    }
+
+    material material1 = dielectric(1.5);
+    centers.push_back(point3(0, 1, 0));
+    radii.push_back(1.0);
+    materials.push_back(material1);
+
+    material material2 = lambertian(color(0.4, 0.2, 0.1));
+    centers.push_back(point3(-4, 1, 0));
+    radii.push_back(1.0);
+    materials.push_back(material2);
+
+    material material3 = metal(color(0.7, 0.6, 0.5), 0.0);
+    centers.push_back(point3(4, 1, 0));
+    radii.push_back(1.0);
+    materials.push_back(material3);
+
+    world.add_spheres(centers.size(), centers.data(), radii.data(), materials.data());
+    return world;
 }
 
 int main(int argc, char **argv) {
@@ -81,10 +153,10 @@ int main(int argc, char **argv) {
 
     // Image
 
-    const float aspect_ratio = 16.0 / 9.0;
-    const int image_width = 400;
+    const float aspect_ratio = 3.0 / 2.0;
+    const int image_width = 1200;
     const int image_height = static_cast<int>(image_width / aspect_ratio);
-    const int samples_per_pixel = 100;
+    const int samples_per_pixel = 500;
     const int max_depth = 50;
 
     // Dimensions
@@ -101,29 +173,17 @@ int main(int argc, char **argv) {
 
     // World
 
-    const size_t n_spheres = 5;
-    point3 centers[n_spheres] = {
-        {0, -100.5, -1},
-        {0, 0, -1},
-        {-1, 0, -1},
-        {-1, 0, -1},
-        {1, 0, -1}
-    };
-    float radii[n_spheres] = {100, 0.5, 0.5, -0.4, 0.5};
-    material materials[n_spheres] = {
-        lambertian(color(0.8, 0.8, 0.0)),
-        lambertian(color(0.1, 0.2, 0.5)),
-        dielectric(1.5),
-        dielectric(1.5),
-        metal(color(0.8, 0.6, 0.2), 0.0)
-    };
-
-    hittable_list h_world;
-    h_world.add_spheres(n_spheres, centers, radii, materials);
+    srand(42);
+    hittable_list h_world = random_scene();
 
     // Camera
 
-    camera h_cam(point3(-2, 2, 1), point3(0, 0, -1), vec3(0, 1, 0), 20.0, aspect_ratio);
+    point3 lookfrom(3, 3, 2);
+    point3 lookat(0, 0, -1);
+    vec3 vup(0, 1, 0);
+    float dist_to_focus = (lookfrom - lookat).length();
+    float aperture = 2.0;
+    camera h_cam(lookfrom, lookat, vup, 20, aspect_ratio, aperture, dist_to_focus);
 
     camera *d_cam;
     cudaMalloc(&d_cam, sizeof(camera));
@@ -147,7 +207,6 @@ int main(int argc, char **argv) {
     cudaMalloc(&d_state, n_pixels * sizeof(curandState));
     setup_curand<<<grid_dim, block_dim>>>(d_state, image_width, image_height);
 
-    // TODO: Track and print progress.
     render<max_depth><<<grid_dim, block_dim>>>(
         d_state, d_cam, image_width, image_height, d_world, d_pixels, samples_per_pixel);
 

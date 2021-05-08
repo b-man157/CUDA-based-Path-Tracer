@@ -8,6 +8,7 @@
 #ifdef __CUDACC__
     #define __HD__ __host__ __device__
 #else
+    #define __host__
     #define __device__
     #define __HD__
 #endif
@@ -61,6 +62,16 @@ class vec3 {
             // Return true if the vector is close to zero in all dimensions.
             const float s = 1e-8;
             return (fabs(e[0]) < s) && (fabs(e[1]) < s) && (fabs(e[2]) < s);
+        }
+
+        __host__ static vec3 random() {
+            return vec3(random_float(), random_float(), random_float());
+        }
+
+        __host__ static vec3 random(float min, float max) {
+            return vec3(random_float(min, max),
+                        random_float(min, max),
+                        random_float(min, max));
         }
 
         template <typename curandState>
@@ -142,6 +153,15 @@ __device__ inline vec3 random_unit_vector(curandState *state) {
 }
 
 template <typename curandState>
+__device__ inline vec3 random_in_unit_disk(curandState *state) {
+    while (true) {
+        auto p = vec3(random_float(state, -1, 1), random_float(state, -1, 1), 0);
+        if (p.length_squared() >= 1) continue;
+        return p;
+    }
+}
+
+template <typename curandState>
 __device__ inline vec3 random_in_hemisphere(curandState *state, const vec3 &normal) {
     vec3 in_unit_sphere = random_in_unit_sphere(state);
     return dot(in_unit_sphere, normal) > 0      // In the same hemisphere as normal.
@@ -161,6 +181,7 @@ __device__ inline vec3 refract(const vec3 &uv, const vec3 &n, double etai_over_e
 }
 
 #ifndef __CUDACC__
+    #undef __host__
     #undef __device__
 #endif
 
