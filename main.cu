@@ -1,4 +1,3 @@
-#include "lambertian.hpp"
 #include "rtweekend.hpp"
 
 #include "camera.hpp"
@@ -6,15 +5,18 @@
 #include "hittable_list.hpp"
 #include "material.hpp"
 
-#include <cstdlib>
 #include <cuda.h>
 #include <curand_kernel.h>
 
+#include <unistd.h>
+
 #include <fstream>
+#include <iostream>
 #include <numeric>
 #include <vector>
 
-__constant__ unsigned seed = 42;
+const unsigned h_seed = 42, NTHREADS = 256;
+__constant__ unsigned d_seed = 42;
 
 __global__ void setup_curand(curandState *state, int image_width, int image_height) {
     auto idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -22,7 +24,7 @@ __global__ void setup_curand(curandState *state, int image_width, int image_heig
 
     if (idx < image_width && idy < image_height) {
         auto id = idy * image_width + idx;
-        curand_init(seed, id, 0, &state[id]);
+        curand_init(d_seed, id, 0, &state[id]);
     }
 }
 
@@ -52,7 +54,7 @@ __device__ color ray_color<0>(
 
 template <int max_depth>
 __global__ void render(
-        curandState *state, const camera *cam, int image_width, int image_height,
+        curandState *state, const camera *cam, const int image_width, const int image_height,
         const hittable_list *world, color *pixel_colors, int samples_per_pixel) {
     auto idx = blockIdx.x * blockDim.x + threadIdx.x;
     auto idy = blockIdx.y * blockDim.y + threadIdx.y;
@@ -68,15 +70,7 @@ __global__ void render(
             auto r = cam->get_ray(&state[id], u, v);
 
             pixel_colors[p_index] += ray_color<max_depth>(&state[id], r, world);
-
-            if (!idx && !idy) {
-                printf("\rSamples remaining: %d ", samples_per_pixel - i);
-            }
         }
-    }
-
-    if (!idx && !idy) {
-        printf("\n");
     }
 }
 
@@ -139,7 +133,11 @@ hittable_list random_scene() {
     radii.push_back(1.0);
     materials.push_back(material3);
 
+    centers.shrink_to_fit();
+    radii.shrink_to_fit();
+    materials.shrink_to_fit();
     world.add_spheres(centers.size(), centers.data(), radii.data(), materials.data());
+
     return world;
 }
 
@@ -161,28 +159,35 @@ int main(int argc, char **argv) {
 
     // Dimensions
 
+    int x = sqrt(NTHREADS * aspect_ratio); x -= x > 32 ? x % 32 : 0;
+    int y = NTHREADS / x;
+
     dim3 block_dim;
-    block_dim.x = sqrt(1024 * aspect_ratio);
-    block_dim.y = block_dim.x / aspect_ratio;
+    block_dim.x = x;
+    block_dim.y = y;
     block_dim.z = 1;
 
     dim3 grid_dim;
-    grid_dim.x = (image_width  / block_dim.x) + (image_width  % block_dim.x > 0);
-    grid_dim.y = (image_height / block_dim.y) + (image_height % block_dim.y > 0);
+    grid_dim.x = (image_width / x) + (image_width % x > 0);
+    grid_dim.y = (image_height / y) + (image_height % y > 0);
     grid_dim.z = 1;
 
     // World
 
-    srand(42);
+    srand(h_seed);
     hittable_list h_world = random_scene();
+
+    hittable_list *d_world;
+    cudaMalloc(&d_world, sizeof(hittable_list));
+    cudaMemcpyAsync(d_world, &h_world, sizeof(hittable_list), cudaMemcpyHostToDevice);
 
     // Camera
 
-    point3 lookfrom(3, 3, 2);
-    point3 lookat(0, 0, -1);
+    point3 lookfrom(13, 2, 3);
+    point3 lookat(0, 0, 0);
     vec3 vup(0, 1, 0);
-    float dist_to_focus = (lookfrom - lookat).length();
-    float aperture = 2.0;
+    float dist_to_focus = 10;
+    float aperture = 0.1;
     camera h_cam(lookfrom, lookat, vup, 20, aspect_ratio, aperture, dist_to_focus);
 
     camera *d_cam;
@@ -193,37 +198,35 @@ int main(int argc, char **argv) {
 
     std::ofstream f_out(argv[1]);
 
-    f_out << "P3\n" << image_width << ' ' << image_height << "\n255";
+    f_out << "P3\n" << image_width << ' ' << image_height << "\n255\n";
 
     const int n_pixels = image_width * image_height;
     color *d_pixels;
     cudaMalloc(&d_pixels, n_pixels * sizeof(color));
-
-    hittable_list *d_world;
-    cudaMalloc(&d_world, sizeof(hittable_list));
-    cudaMemcpyAsync(d_world, &h_world, sizeof(hittable_list), cudaMemcpyHostToDevice);
 
     curandState *d_state;
     cudaMalloc(&d_state, n_pixels * sizeof(curandState));
     setup_curand<<<grid_dim, block_dim>>>(d_state, image_width, image_height);
 
     render<max_depth><<<grid_dim, block_dim>>>(
-        d_state, d_cam, image_width, image_height, d_world, d_pixels, samples_per_pixel);
+        d_state, d_cam, image_width, image_height,
+        d_world, d_pixels, samples_per_pixel
+    );
 
     h_world.clear();
     cudaFree(d_state);
     cudaFree(d_cam);
     cudaFree(d_world);
 
+    // Add streams.
     color *h_pixels = (color *) std::malloc(n_pixels * sizeof(color));
     cudaMemcpy(h_pixels, d_pixels, n_pixels * sizeof(color), cudaMemcpyDeviceToHost);
     cudaFree(d_pixels);
 
-    f_out << std::accumulate(h_pixels, h_pixels + n_pixels, std::string(""),
-        [samples_per_pixel](const std::string s, const color c) {
-            return s + '\n' + to_string(c, samples_per_pixel);
-        }
-    );
+    for (int i = 0; i < n_pixels-1; ++i) {
+        f_out << to_string(h_pixels[i], samples_per_pixel) + '\n';
+    }
+    f_out << to_string(h_pixels[n_pixels-1], samples_per_pixel);
     std::free(h_pixels);
 
     f_out.close();

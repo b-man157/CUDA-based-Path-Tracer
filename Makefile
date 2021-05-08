@@ -1,18 +1,21 @@
-objects = main.o hittable_list.o sphere.o
+OBJS = main.o hittable_list.o sphere.o
+CC = nvcc
+LFLAGS = -std=c++17 -O3 -arch=sm_86
+CFLAGS = $(LFLAGS) -dc -Xptxas -O5
 
 all: image.ppm
 
-image.ppm: a.out
-	./a.out image.ppm
+image.ppm: render.out
+	./render.out image.ppm
 
-a.out: $(objects)
-	nvcc -arch=sm_86 $(objects) -g -G
+render.out: $(OBJS)
+	$(CC) $(LFLAGS) $^ -o $@
 
 %.o: %.cu
-	nvcc -arch=sm_86 -dc $< -o $@ -g -G
+	$(CC) $(CFLAGS) $< -o $@
 
 %.o: %.cpp
-	nvcc -x cu -arch=sm_86 -dc $< -o $@ -g -G
+	$(CC) -x cu $(CFLAGS) $< -o $@
 
 clean:
-	rm -f *.o a.out image.ppm
+	rm -f *.o render.out image.ppm
