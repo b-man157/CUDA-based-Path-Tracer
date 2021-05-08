@@ -1,12 +1,14 @@
 #ifndef VEC3_HPP
 #define VEC3_HPP
 
-#include <cmath>
+#include "rtweekend.hpp"
+
 #include <iostream>
 
 #ifdef __CUDACC__
     #define __HD__ __host__ __device__
 #else
+    #define __device__
     #define __HD__
 #endif
 
@@ -53,6 +55,24 @@ class vec3 {
 
         __HD__ float length_squared() const {
             return (e[0] * e[0]) + (e[1] * e[1]) + (e[2] * e[2]);
+        }
+
+        __device__ bool near_zero() const {
+            // Return true if the vector is close to zero in all dimensions.
+            const float s = 1e-8;
+            return (fabs(e[0]) < s) && (fabs(e[1]) < s) && (fabs(e[2]) < s);
+        }
+
+        template <typename curandState>
+        __device__ static vec3 random(curandState *state) {
+            return vec3(random_float(state), random_float(state), random_float(state));
+        }
+
+        template <typename curandState>
+        __device__ static vec3 random(curandState *state, float min, float max) {
+            return vec3(random_float(state, min, max),
+                        random_float(state, min, max),
+                        random_float(state, min, max));
         }
 
     private:
@@ -106,6 +126,43 @@ __HD__ inline vec3 cross(const vec3 &u, const vec3 &v) {
 __HD__ inline vec3 unit_vector(const vec3 &v) {
     return v / v.length();
 }
+
+template <typename curandState>
+__device__ inline vec3 random_in_unit_sphere(curandState *state) {
+    while (true) {
+        auto p = vec3::random(state, -1, 1);
+        if (p.length_squared() >= 1) continue;
+        return p;
+    }
+}
+
+template <typename curandState>
+__device__ inline vec3 random_unit_vector(curandState *state) {
+    return unit_vector(random_in_unit_sphere(state));
+}
+
+template <typename curandState>
+__device__ inline vec3 random_in_hemisphere(curandState *state, const vec3 &normal) {
+    vec3 in_unit_sphere = random_in_unit_sphere(state);
+    return dot(in_unit_sphere, normal) > 0      // In the same hemisphere as normal.
+        ? in_unit_sphere : -in_unit_sphere;
+}
+
+__device__ inline vec3 reflect(const vec3 &v, const vec3 &n) {
+    return v - 2 * dot(v, n) * n;
+}
+
+__device__ inline vec3 refract(const vec3 &uv, const vec3 &n, double etai_over_etat) {
+    // Cast to float avoids need for constexpr.
+    float cos_theta = fmin(dot(-uv, n), (float) 1.0);
+    auto r_out_perp = etai_over_etat * (uv + n * cos_theta);
+    auto r_out_parallel = -sqrt(fabs(1.0 - r_out_perp.length_squared())) * n;
+    return r_out_perp + r_out_parallel;
+}
+
+#ifndef __CUDACC__
+    #undef __device__
+#endif
 
 #undef __HD__
 

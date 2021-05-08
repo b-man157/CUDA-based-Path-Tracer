@@ -10,13 +10,15 @@
 class sphere {
     public:
         sphere() {}
-        __device__ sphere(point3 cen, float r) : center(cen), radius(r) {}
+        __device__ sphere(point3 cen, float r, material *m)
+            : center(cen), radius(r), mat_ptr(m) {}
 
         __device__ bool hit(const ray &r, float t_min, float t_max, hit_record &rec) const;
 
     private:
         point3 center;
         float radius;
+        material *mat_ptr;
 };
 
 #ifndef __CUDACC__

@@ -3,8 +3,11 @@
 
 #include <type_traits>
 
-#ifndef __CUDACC__
+#ifdef __CUDACC__
+    #define __HD__ __host__ __device__
+#else
     #define __device__
+    #define __HD__
 #endif
 
 //
@@ -51,18 +54,18 @@ union VariantStorage<T, Ts...> {
     T element;
     VariantStorage<Ts...> nextElements;
 
-    __device__ VariantStorage() {}
+    __HD__ VariantStorage() {}
 
-    __device__ T &get(typedIndex<1>) { return element; }
-    __device__ T const &get(typedIndex<1>) const { return element; }
+    __HD__ T &get(typedIndex<1>) { return element; }
+    __HD__ const T &get(typedIndex<1>) const { return element; }
 
-    template <unsigned I>
-    __device__ typeAt<I - 1, Ts...> &get(typedIndex<I>) {
+    template <unsigned I, std::enable_if_t<(I > 1), bool> = true>
+    __HD__ typeAt<I - 1, Ts...> &get(typedIndex<I>) {
         return nextElements.get(typedIndex<I - 1>{});
     }
 
-    template <unsigned I>
-    __device__ typeAt<I - 1, Ts...> const &get(typedIndex<I>) const {
+    template <unsigned I, std::enable_if_t<(I > 1), bool> = true>
+    __HD__ typeAt<I - 1, Ts...> const &get(typedIndex<I>) const {
         return nextElements.get(typedIndex<I - 1>{});
     }
 };
@@ -73,18 +76,18 @@ class Variant {
         Variant() = default;
 
         template <typename T>
-        __device__ Variant(const T &value) : type_index_(indexOf<T, Ts...>) {
+        __HD__ Variant(const T &value) : type_index_(indexOf<T, Ts...>) {
             storage_.get(typedIndex<indexOf<T, Ts...>>()) = value;
         }
 
         template <typename T>
-        __device__ Variant &operator=(const T &value) {
+        __HD__ Variant &operator=(const T &value) {
             type_index_ = indexOf<T, Ts...>;
             storage_.get(typedIndex<indexOf<T, Ts...>>()) = value;
         }
 
         template <typename T>
-        __device__ const T* as() const {
+        __HD__ const T* as() const {
             return type_index_ == indexOf<T, Ts...>
                 ? &storage_.get(typedIndex<indexOf<T, Ts...>>())
                 : nullptr;
@@ -123,7 +126,7 @@ struct applyVisitor_impl<0> {
 };
 
 template <typename Visitor, typename ...Ts>
-__device__ typename Visitor::return_type applyVisitor(
+__HD__ typename Visitor::return_type applyVisitor(
         Visitor &visitor, const Variant<Ts...> &var) {
     return applyVisitor_impl<sizeof...(Ts), Ts...>()(visitor, var);
 }
@@ -131,5 +134,6 @@ __device__ typename Visitor::return_type applyVisitor(
 #ifndef __CUDACC__
     #undef __device__
 #endif
+#undef __HD__
 
 #endif

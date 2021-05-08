@@ -1,4 +1,5 @@
 #include "hittable_list.hpp"
+#include "material.hpp"
 
 #include <cuda.h>
 
@@ -9,31 +10,37 @@ void hittable_list::clear() {
     }
 }
 
-__global__ void add_spheres(size_t n, point3 *centers, float *radii, hittable *spheres) {
+__global__ void add_spheres(
+        size_t n, point3 *centers, float *radii, material *materials,
+        hittable *spheres) {
     auto idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        spheres[idx] = hittable(sphere(centers[idx], radii[idx]));
+        spheres[idx] = hittable(sphere(centers[idx], radii[idx], &materials[idx]));
     }
 }
 
-void hittable_list::add_spheres(size_t n, point3 *centers, float *radii) {
+void hittable_list::add_spheres(size_t n, point3 *centers, float *radii, material *materials) {
     clear();
     cudaMalloc(&objects, n * sizeof(hittable));
     _size = n;
 
     point3 *d_centers;
     float *d_radii;
+    material *d_materials;
     cudaMalloc(&d_centers, n * sizeof(point3));
     cudaMalloc(&d_radii, n * sizeof(float));
+    cudaMalloc(&d_materials, n * sizeof(material));
 
     cudaMemcpyAsync(d_centers, centers, n * sizeof(point3), cudaMemcpyHostToDevice);
     cudaMemcpyAsync(d_radii, radii, n * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpyAsync(d_materials, materials, n * sizeof(material), cudaMemcpyHostToDevice);
 
     size_t n_blks = (n / 1024) + (n % 1024 > 0);
-    ::add_spheres<<<n_blks, 1024>>>(n, d_centers, d_radii, objects);
+    ::add_spheres<<<n_blks, 1024>>>(n, d_centers, d_radii, d_materials, objects);
 
     cudaFree(d_centers);
     cudaFree(d_radii);
+    // d_materials not freed as it could be reused.
 }
 
 __device__ bool hittable_list::hit(

@@ -7,9 +7,23 @@
     #define __device__
 #endif
 
+// Forward-declaration of material.
+
+template <typename ...Ts>
+class generic_material;
+
+class dielectric;
+class lambertian;
+class metal;
+
+typedef generic_material<dielectric, lambertian, metal> material;
+
+// End.
+
 struct hit_record {
     point3 p;
     vec3 normal;
+    material *mat_ptr;
     double t;
     bool front_face;
 
