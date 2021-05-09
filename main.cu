@@ -15,8 +15,11 @@
 #include <numeric>
 #include <vector>
 
-const unsigned h_seed = 42, NTHREADS = 256;
+const unsigned h_seed = 42;
 __constant__ unsigned d_seed = 42;
+
+const bool USE_STREAMS = true;
+const unsigned NTHREADS = 128, NSTREAMS = 4;
 
 __global__ void setup_curand(curandState *state, int image_width, int image_height) {
     auto idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -25,6 +28,16 @@ __global__ void setup_curand(curandState *state, int image_width, int image_heig
     if (idx < image_width && idy < image_height) {
         auto id = idy * image_width + idx;
         curand_init(d_seed, id, 0, &state[id]);
+    }
+}
+
+__global__ void clear_pixels(const int image_width, const int image_height, color *pixel_colors) {
+    auto idx = blockIdx.x * blockDim.x + threadIdx.x;
+    auto idy = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (idx < image_width && idy < image_height) {
+        auto p_index = (image_height-1 - idy) * image_width + idx;
+        pixel_colors[p_index] = color(0, 0, 0);
     }
 }
 
@@ -62,7 +75,7 @@ __global__ void render(
     if (idx < image_width && idy < image_height) {
         auto id = idy * image_width + idx;
         auto p_index = (image_height-1 - idy) * image_width + idx;
-        pixel_colors[p_index] = color(0, 0, 0);
+        auto pixel_color = color(0, 0, 0);
 
         for (int i = 0; i < samples_per_pixel; ++i) {
             float u = (idx + random_float(&state[id])) / (image_width-1);
@@ -71,6 +84,9 @@ __global__ void render(
 
             pixel_colors[p_index] += ray_color<max_depth>(&state[id], r, world);
         }
+        atomicAdd(&pixel_colors[p_index][0], pixel_color[0]);
+        atomicAdd(&pixel_colors[p_index][1], pixel_color[1]);
+        atomicAdd(&pixel_colors[p_index][2], pixel_color[2]);
     }
 }
 
@@ -159,7 +175,7 @@ int main(int argc, char **argv) {
 
     // Dimensions
 
-    int x = sqrt(NTHREADS * aspect_ratio); x -= x > 32 ? x % 32 : 0;
+    int x = sqrt(NTHREADS * aspect_ratio); x = (x > 32) ? (x - x % 32) : 32;
     int y = NTHREADS / x;
 
     dim3 block_dim;
@@ -208,17 +224,38 @@ int main(int argc, char **argv) {
     cudaMalloc(&d_state, n_pixels * sizeof(curandState));
     setup_curand<<<grid_dim, block_dim>>>(d_state, image_width, image_height);
 
-    render<max_depth><<<grid_dim, block_dim>>>(
-        d_state, d_cam, image_width, image_height,
-        d_world, d_pixels, samples_per_pixel
-    );
+    if (USE_STREAMS) {
+        cudaStream_t streams[NSTREAMS];
+        for (int i = 0; i < NSTREAMS; ++i) {
+            cudaStreamCreate(&streams[i]);
+        }
+        clear_pixels<<<grid_dim, block_dim>>>(image_width, image_height, d_pixels);
+
+        for (int i = 0; i < NSTREAMS; ++i) {
+            render<max_depth><<<grid_dim, block_dim, 0, streams[i]>>>(
+                d_state, d_cam, image_width, image_height,
+                d_world, d_pixels, samples_per_pixel/NSTREAMS + 1
+            );
+        }
+
+        for (int i = 0; i < NSTREAMS; ++i) {
+            cudaStreamDestroy(streams[i]);
+        }
+        cudaDeviceSynchronize();
+    }
+    else {
+        clear_pixels<<<grid_dim, block_dim>>>(image_width, image_height, d_pixels);
+        render<max_depth><<<grid_dim, block_dim>>>(
+            d_state, d_cam, image_width, image_height,
+            d_world, d_pixels, samples_per_pixel
+        );
+    }
 
     h_world.clear();
     cudaFree(d_state);
     cudaFree(d_cam);
     cudaFree(d_world);
 
-    // Add streams.
     color *h_pixels = (color *) std::malloc(n_pixels * sizeof(color));
     cudaMemcpy(h_pixels, d_pixels, n_pixels * sizeof(color), cudaMemcpyDeviceToHost);
     cudaFree(d_pixels);

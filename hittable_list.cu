@@ -3,6 +3,8 @@
 
 #include <cuda.h>
 
+const int NTHREADS = 32;
+
 void hittable_list::clear() {
     if (_size) {
         cudaFree(objects);
@@ -35,8 +37,8 @@ void hittable_list::add_spheres(size_t n, point3 *centers, float *radii, materia
     cudaMemcpyAsync(d_radii, radii, n * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpyAsync(d_materials, materials, n * sizeof(material), cudaMemcpyHostToDevice);
 
-    size_t n_blks = (n / 1024) + (n % 1024 > 0);
-    ::add_spheres<<<n_blks, 1024>>>(n, d_centers, d_radii, d_materials, objects);
+    size_t n_blks = (n / NTHREADS) + (n % NTHREADS > 0);
+    ::add_spheres<<<n_blks, NTHREADS>>>(n, d_centers, d_radii, d_materials, objects);
 
     cudaFree(d_centers);
     cudaFree(d_radii);
