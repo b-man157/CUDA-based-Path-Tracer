@@ -1,7 +1,7 @@
 #ifndef METAL_HPP
 #define METAL_HPP
 
-#include "hit_record.hpp"
+#include "include/hittable/hit_record.hpp"
 
 #ifndef __CUDACC__
     #define __device__

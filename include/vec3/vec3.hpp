@@ -1,7 +1,7 @@
 #ifndef VEC3_HPP
 #define VEC3_HPP
 
-#include "rtweekend.hpp"
+#include "src/rtweekend.hpp"
 
 #include <iostream>
 
@@ -12,8 +12,6 @@
     #define __device__
     #define __HD__
 #endif
-
-using std::sqrt;
 
 class vec3 {
     public:

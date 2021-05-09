@@ -1,24 +1,20 @@
 #include "rtweekend.hpp"
 
-#include "camera.hpp"
-#include "color.hpp"
-#include "hittable_list.hpp"
-#include "material.hpp"
+#include "include/vec3/camera.hpp"
+#include "include/vec3/color.hpp"
+#include "include/material/material.hpp"
+#include "src/hittable_list/hittable_list.hpp"
 
 #include <cuda.h>
-#include <curand_kernel.h>
-
-#include <unistd.h>
 
 #include <fstream>
-#include <iostream>
 #include <numeric>
 #include <vector>
 
 const unsigned h_seed = 42;
 __constant__ unsigned d_seed = 42;
 
-const bool USE_STREAMS = true;
+const bool USE_STREAMS = false;
 const unsigned NTHREADS = 128, NSTREAMS = 4;
 
 __global__ void setup_curand(curandState *state, int image_width, int image_height) {
@@ -261,7 +257,7 @@ int main(int argc, char **argv) {
     cudaFree(d_pixels);
 
     for (int i = 0; i < n_pixels-1; ++i) {
-        f_out << to_string(h_pixels[i], samples_per_pixel) + '\n';
+        write_color(f_out, h_pixels[i], samples_per_pixel);
     }
     f_out << to_string(h_pixels[n_pixels-1], samples_per_pixel);
     std::free(h_pixels);

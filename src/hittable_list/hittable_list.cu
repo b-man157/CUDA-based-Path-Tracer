@@ -1,5 +1,5 @@
 #include "hittable_list.hpp"
-#include "material.hpp"
+#include "include/material/material.hpp"
 
 #include <cuda.h>
 

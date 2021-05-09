@@ -1,13 +1,13 @@
 #ifndef HIT_RECORD_HPP
 #define HIT_RECORD_HPP
 
-#include "ray.hpp"
+#include "include/vec3/ray.hpp"
 
 #ifndef __CUDACC__
     #define __device__
 #endif
 
-// Forward-declaration of material.
+// Forward-declaration of material for use in hit_record.
 
 template <typename ...Ts>
 class generic_material;

@@ -1,7 +1,7 @@
 #ifndef DIELECTRIC_HPP
 #define DIELECTRIC_HPP
 
-#include "hit_record.hpp"
+#include "include/hittable/hit_record.hpp"
 
 #ifndef __CUDACC__
     #define __device__

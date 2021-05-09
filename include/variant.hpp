@@ -1,3 +1,7 @@
+/* Source of idea: C++ Compile Time Polymorphism for Ray Tracing - S. Zellman and U. Lang, 2017.
+ * Code partially taken (with modification) from:
+ *        https://github.com/szellmann/visionaray/blob/master/include/visionaray/variant.h */
+
 #ifndef VARIANT_HPP
 #define VARIANT_HPP
 
@@ -10,7 +14,7 @@
     #define __HD__
 #endif
 
-//
+// std::size_t indexOf<T, Ts...> returns the index of T in the parameter pack Ts.
 
 template <typename ...Ts>
 struct indexOf_impl;
@@ -25,7 +29,7 @@ struct indexOf_impl<T, U, Ts...> :
 template <typename T, typename ...Ts>
 constexpr std::size_t indexOf = indexOf_impl<T, Ts...>::value;
 
-//
+// typeAt() returns the Ith typename in the parameter pack.
 
 template <unsigned I, typename ...Ts>
 struct typeAt_impl;
@@ -39,12 +43,13 @@ struct typeAt_impl<I, T, Ts...> : typeAt_impl<I - 1, Ts...> {};
 template <unsigned I, typename ...Ts>
 using typeAt = typename typeAt_impl<I, Ts...>::type;
 
-//
+// typedIndex<I> returns the corresponding type for I, needed in templates.
 
 template <unsigned I>
 using typedIndex = std::integral_constant<unsigned, I>;
 
-//
+// union VariantStorage recursively creates and stores the values for each type in the parameter
+// pack.
 
 template <typename ...Ts>
 union VariantStorage {};
@@ -69,6 +74,9 @@ union VariantStorage<T, Ts...> {
         return nextElements.get(typedIndex<I - 1>{});
     }
 };
+
+// class Variant<Ts...> implements the required polymorphism functionality by inferring types at
+// compile-time.
 
 template <typename ...Ts>
 class Variant {
@@ -98,7 +106,7 @@ class Variant {
         std::size_t type_index_;
 };
 
-//
+// Visitor::return_type applyVisitor(Visitor, Variant) applies Visitor on the Variant.
 
 template <unsigned I, typename ...Ts>
 struct applyVisitor_impl;

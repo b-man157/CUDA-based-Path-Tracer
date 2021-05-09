@@ -1,11 +1,11 @@
 #ifndef MATERIAL_HPP
 #define MATERIAL_HPP
 
-#include "rtweekend.hpp"
+#include "src/rtweekend.hpp"
 
-#include "hit_record.hpp"
 #include "scatter_visitor.hpp"
-#include "variant.hpp"
+#include "include/hittable/hit_record.hpp"
+#include "include/variant.hpp"
 
 #ifndef __CUDACC__
     #define __device__

@@ -1,7 +1,7 @@
 #ifndef HITTABLE_LIST_HPP
 #define HITTABLE_LIST_HPP
 
-#include "hittable.hpp"
+#include "include/hittable/hittable.hpp"
 
 #ifndef __CUDACC__
     #define __device__

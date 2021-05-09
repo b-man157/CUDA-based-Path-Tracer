@@ -2,7 +2,7 @@
 #define HITTABLE_HPP
 
 #include "hit_visitor.hpp"
-#include "variant.hpp"
+#include "include/variant.hpp"
 
 #ifndef __CUDACC__
     #define __device__

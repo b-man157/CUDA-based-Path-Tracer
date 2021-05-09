@@ -1,21 +1,21 @@
-OBJS = main.o hittable_list.o sphere.o
+OBJS = build/main.o build/hittable_list.o
 CC = nvcc
 LFLAGS = -std=c++17 -O3 -arch=sm_86
 CFLAGS = $(LFLAGS) -dc -Xptxas -O5
 
 all: image.ppm
 
-image.ppm: render.out
-	./render.out image.ppm
+image.ppm: bin/render.out
+	bin/render.out image.ppm
 
-render.out: $(OBJS)
+bin/render.out: $(OBJS)
 	$(CC) $(LFLAGS) $^ -o $@
 
-%.o: %.cu
-	$(CC) $(CFLAGS) $< -o $@
+build/main.o: src/main.cu
+	$(CC) $(CFLAGS) $< -o $@ -I.
 
-%.o: %.cpp
-	$(CC) -x cu $(CFLAGS) $< -o $@
+build/hittable_list.o: src/hittable_list/hittable_list.cu
+	$(CC) $(CFLAGS) $< -o $@ -I.
 
 clean:
-	rm -f *.o render.out image.ppm
+	rm -f build/*.o bin/render.out image.ppm
